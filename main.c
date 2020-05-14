@@ -1,7 +1,8 @@
-#include <stdio.h>
+
+# include "elf.h"
 
 int main()
 {
-	printf("Hello, World!\n");
+	printf("ello, World!\n");
 	return 0;
 }
