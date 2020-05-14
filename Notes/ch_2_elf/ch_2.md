@@ -209,6 +209,133 @@ SHT_SYMTAB
     [.bss]: These are the globally uninitialized variables
 
 
+## ELF symbols
+* Symbols are a symbolic reference to some type of data, global, function
+* printf() function have a symbol entry that point to it in .dynsym (dynamic symbol table)
+* there commonly exist 2 table
+  - .dynsym
+    * Contain all symbol that came from external source, like printf, libc
+  - .symtab
+    * Contain all .dynsym and all the local function / global
+
+
+So why there is .dynsym if .symtab contain it?
+If we look at `readefl -S <file>`, we will see that some section
+are marked A (Alloc), WA (Write/Alloc), AX (Alloc/Exec).
+.dynsym -> A, .symtab -> has no flag!
+
+Alloc mean, that section will be allocated and load into memory at runtime.
+.strsym, n'est pas charger un memoire car il ne sert a rien.
+Il existe que pour le debug et le linkage,
+Il est supprime en production pour gagner de la place.
+
+```c
+typedef struct {
+uint32_t      st_name;
+    unsigned char st_info;
+    unsigned char st_other;
+    uint16_t      st_shndx;
+    Elf64_Addr    st_value;
+    Uint64_t      st_size;
+} Elf64_Sym;
+```
+Les symbol enties sont contenu dans .symtab et .dynsym.
+?? c'est pourquoi sh_entsize pour ces sections -> sizeof(Elf64_Sym)
+
+#### st_name
+contain offset into the symbol table's string, in .dynstr / strtab,
+where the symbol is located, such as printf.
+
+#### st_value
+The st_value holds the value of the symbol address, or offset of its location
+
+#### st_size
+Size of the symbol, for a global ptr function, it's 4 bytes on 32 bytes.
+
+#### st_other
+Define the symbol visibility.
+
+#### st_shndx
+Every symabol is defined in relation to some section.
+This contain the relevant index of this section.
+
+#### st_info
+Specifies the symbol type and binding attribute.
+* Symbol types:
+  - STT_NOTYPE: symbole is undefined
+  - STT_FUNC:   associated with function, or executable code
+  - STT_OBJECT: associated with data object
+* Symbol binding:
+  - STB_LOCAL:    Local symbols are not visible outside its object, like static func an .o
+  - STB_GLOBAL    Visible to all object files being combined.
+  - STB_WEAK      Same visibility that STB_GLOBAL, but can be overwrite
+                  by an other symbol, with same name, but not weak.
+
+##### There is macro to unpacking binding and type
+    ELF32_ST_BIND(info) or ELF64_ST_BIND(info) extract a binding from an st_info value
+    ELF32_ST_TYPE(info) or ELF64_ST_TYPE(info) extract a type from an st_info value
+    ELF32_ST_INFO(bind, type) or ELF64_ST_INFO(bind, type) convert a binding and a type into an st_info value
+
+code source
+```c
+static inline void foochu()
+{ /* Do nothing */ }
+
+void func1()
+{ /* Do nothing */ }
+
+_start()
+{
+        func1();
+        foochu();
+}
+```
+
+* comment que c'est dans la strsym / dymstr
+
+ryan@alchemy:~$ readelf -s test | egrep 'foochu|func1'
+
+index addres   ? type binding
+7:    080480d8 5 FUNC LOCAL   DEFAULT 2 foochu
+8:    080480dd 5 FUNC GLOBAL  DEFAULT 2 func1
+
+
+Symbol make life easier for everyone, they are part of the elf
+for linking, relocation, readable disassembly, debugging.
+
+
+#### Ftrace
+Ftrace was create in 2013 by the Author,
+It's trace all of the function calls made within the binary
+and can also show branch instruction like jump.
+
+
+##### note
+if .symtab is delete, the external symbol remain (.dymstr),
+and local one, beguin only address.
+
+This happen if :
+* compiled with gcc-static
+* compiled with gcc-nostdlib
+* the binary is striped, with the strip command
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
