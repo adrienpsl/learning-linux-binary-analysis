@@ -210,24 +210,17 @@ SHT_SYMTAB
 
 
 ## ELF symbols
-* Symbols are a symbolic reference to some type of data, global, function
-* printf() function have a symbol entry that point to it in .dynsym (dynamic symbol table)
-* there commonly exist 2 table
-  - .dynsym
-    * Contain all symbol that came from external source, like printf, libc
-  - .symtab
-    * Contain all .dynsym and all the local function / global
+2 sections, ce sont des tables de la structure Elf64_Sym
 
+#### .dynsym:
+* contient les symbols exterieur (printf) ...
+* ne peux etre supprimer
+* Est mapp/e en memoire (readelf -S) -> ALLOC right
 
-So why there is .dynsym if .symtab contain it?
-If we look at `readefl -S <file>`, we will see that some section
-are marked A (Alloc), WA (Write/Alloc), AX (Alloc/Exec).
-.dynsym -> A, .symtab -> has no flag!
-
-Alloc mean, that section will be allocated and load into memory at runtime.
-.strsym, n'est pas charger un memoire car il ne sert a rien.
-Il existe que pour le debug et le linkage,
-Il est supprime en production pour gagner de la place.
+#### .symtab:
+* contient tout dynsym
+* contient tout les symbols du fichier, global, function
+* n'est la que pour debug et linking
 
 ```c
 typedef struct {
@@ -239,8 +232,7 @@ uint32_t      st_name;
     Uint64_t      st_size;
 } Elf64_Sym;
 ```
-Les symbol enties sont contenu dans .symtab et .dynsym.
-?? c'est pourquoi sh_entsize pour ces sections -> sizeof(Elf64_Sym)
+
 
 #### st_name
 contain offset into the symbol table's string, in .dynstr / strtab,
@@ -303,23 +295,237 @@ index addres   ? type binding
 Symbol make life easier for everyone, they are part of the elf
 for linking, relocation, readable disassembly, debugging.
 
+si symtab est delete, avec (exemple) :
+* compiled with gcc-static
+* compiled with gcc-nostdlib
+* the binary is striped, with the strip command
+
+Je n'aurai plus aucune information sur :
+quoi est une fonction,
+quand y a t'il des function call... ca va me rendre la vie bcq plus dur.
+
+je passe de
+```shell script
+objdump -d test2
+
+Disassembly of section .text:
+0000000000400144<foo>:
+  400144:   55                      push   %rbp
+  400145:   48 89 e5                mov    %rsp,%rbp
+  400148:   5d                      pop    %rbp
+  400149:   c3                      retq   
+
+000000000040014a <_start>:
+  40014a:   55                      push   %rbp
+  40014b:   48 89 e5                mov    %rsp,%rbp
+  40014e:   e8 f1 ff ff ff          callq  400144 <foo>
+  400153:   c9                      leaveq
+  400154:   5d                      pop    %rbp
+  400155:   c3                 retq
+```
+
+a
+
+```shell script
+0000000000400144 <.text>:
+  400144:   55                      push   %rbp  
+  400145:   48 89 e5                mov    %rsp,%rbp
+  400148:   5d                      pop    %rbp
+  400149:   c3                      retq   
+  40014a:   55                      push   %rbp 
+  40014b:   48 89 e5                mov    %rsp,%rbp
+  40014e:   e8 f1 ff ff ff          callq  0x400144
+  400153:   c9                      leaveq
+  400154:   5d                      pop    %rbp
+  400155:   c3                      retq  
+```
+
+car objdump n'est plus capable de retrouver les informaition relative
+au function, la seul chose qui me permet de voir que c'est une functoin
+c'est le ```push %rbp | mov %rsp, %rbp```
 
 #### Ftrace
 Ftrace was create in 2013 by the Author,
 It's trace all of the function calls made within the binary
 and can also show branch instruction like jump.
+si j'ai besoin de decompiler un truc, regader dans Ftrace.
 
 
-##### note
-if .symtab is delete, the external symbol remain (.dymstr),
-and local one, beguin only address.
+## ELF relocation
+Relocation est le process de connecter des reference symbolic avec des
+definition symbolic. Relocatable file, doivent avoir des informations
+qui explique comment acceder et modifier les informations dans leurs sections.
+Les informations qui permettend de faire ca, sont les Relocation entries.
 
-This happen if :
-* compiled with gcc-static
-* compiled with gcc-nostdlib
-* the binary is striped, with the strip command
+Relocation depend des sections et symbol,
+il y a des relocation Records, qui contiennent des informations
+sur comment patcher un symbol donne.
+
+Relocation est plus simplement un system de patch, et meme de hot-patching
+quand le dynamic linker est actif.
+
+le program linker est : /bin/ld, qui build shared lib et executable,
+a besoin de methadonne pour le faire: les __relocation records__
 
 
+
+on prends deux .o que l'on va link pour faire un executable,
+obj_1.o -> want call foo()
+obj_2.o -> has the foo code
+
+Les deux obj vont etre annalyser par le linker, et grace a leurs
+relocation records, ils vont etre linker pour faire un exec.
+
+Symbolic ref, vont etre resolu en symbolic definition:
+les codes des object files est contruit pour permettre d'etre
+relocaliser a une address precise dans le segment de mon exec.
+
+Pour construire ces segments, il faut connaitre ou est le code (sym),
+et ou il est (section) : sym -> section -> code >> segment.
+Avec toutes ces informations, le code peut etre patch dans le bon segment.
+
+64bit relocation enty:
+```c
+typedef struct {
+        Elf64_Addr r_offset;
+        Uint64_t   r_info;
+} Elf64_Rel;
+
+// with addend
+
+typedef struct {
+        Elf64_Addr r_offset;
+        uint64_t   r_info;
+        int64_t    r_addend;
+} Elf64_Rela;
+```
+
+r_offset
+    ptr la ou il faut faire une relocation
+    Relocation action, decrit comment patch le code qui est a r_offset
+
+r_info
+    donne le type de relocation a faire
+    l'index dans la table des symbols
+
+r_addend
+    constant a ajouter a la value stored dans le relocatable field
+
+
+exemple:
+```c
+// gcc -c -m32 -nostdlib
+_start()
+{
+    foo();
+}
+```
+-> -> ->
+
+```shell script
+$ objdump -d obj1.o
+obj1.o:     file format elf32-i386
+Disassembly of section .text:
+00000000 <func>:
+   0:   55                      push   %ebp
+   1:   89 e5                   mov    %esp,%ebp
+   3:   83 ec 08                sub    $0x8,%esp
+   6:   e8 fc ff ff ff          call 7 <func+0x7>
+   b:   c9                      leave  
+   c:   c3                      ret   
+```
+
+in 6, there is the call to foo() + the value 0xff ff ff fc,
+qui represent implicit addend.
+call 7, est l'offset de la relocation a patch.
+
+Quand obj_1.o est link a obj_2.o pour faire un exec,
+le relocation entry point 7 est process par le linker:
+lui demandant de mettre a jour la location 7 (offset 7)
+Le linker patch les 4 bytes a l'offset 7, qui contiendront
+l'offset de la function foo, apres l'avoir placer dans le binaire.
+
+e8 fc ff ff ff = -4 = -(sizeof(uint32_t)). dword is 4 bytes on 32bit
+
+
+```shell script
+$ readelf -r obj1.o
+
+Relocation section '.rel.text' at offset 0x394 contains 1 entries:
+ Offset     Info    Type            Sym.Value  Sym. Name
+00000007  00000902 R_386_PC32        00000000   foo
+```
+
+inside the section .rel.text, there is one relocation records:
+* the field is at offset 7.
+* R_386_PC32, is the relocation type, read the man
+
+#### Relocation type
+Ca depend vraiment du type, if faut regarder sur le man,
+pour celui ci c'est : S + A - P.
+* S: la value du symbol a l'index de la relocation entry
+* A: l'addend trouve das la relocation entry
+* P: est la (section offset or address) ? pas compris, surlinger dans le livre
+     a -nop__1
+
+
+
+Here the code after linking
+
+```shell script
+080480d8 <func>:
+ 80480d8:   55                      push   %ebp
+ 80480d9:   89 e5                   mov    %esp,%ebp
+ 80480db:   83 ec 08                sub    $0x8,%esp
+ 80480de:   e8 05 00 00 00          call   80480e8 <foo>
+ 80480e3:   c9                      leave  
+ 80480e4:   c3                      ret    
+ 80480e5:   90                      nop
+ 80480e6:   90                      nop
+ 80480e7:   90                      nop
+ 
+ 080480e8 <foo>:
+ 80480e8:   55                      push   %ebp
+ 80480e9:   89 e5                   mov    %esp,%ebp
+ 80480eb:   5d                      pop    %ebp
+ 80480ec:   c3                      ret
+ ```
+
+J'ai pas mal de mal avec ca, mais je pense qu'il faut juste appliquer
+la formule et ca marche tout, seul.
+
+
+## Relocatable code injection-based binary patching
+Les virus complique utilise ces techniques pour creer un tout
+nouveau binaire, jolie et puissant.
+
+jouons un jeu, nous somme un attaquant, et on veux printer hello_world
+a chaque fais que la function puts est activ/e, en mettant a la place
+notre function, evil_puts.
+
+```c
+#include <sys/syscall.h>
+int _write (int fd, void *buf, int count)
+{
+  long ret;
+
+  __asm__ __volatile__ ("pushl %%ebx\n\t"
+"movl %%esi,%%ebx\n\t"
+"int $0x80\n\t""popl %%ebx":"=a" (ret)
+                        :"0" (SYS_write), "S" ((long) fd),
+"c" ((long) buf), "d" ((long) count));
+  if (ret >= 0) {
+    return (int) ret;
+  }
+  return -1;
+}
+int evil_puts(void)
+{
+        _write(1, "HAHA puts() has been hijacked!\n", 31);
+}
+```
+
+## ELF dynamic linking
 
 
 

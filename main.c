@@ -3,6 +3,7 @@
 
 int main()
 {
-	printf("ello, World!\n");
+	printf("%lu", sizeof(uint32_t));
+//	printf("ello, World!\n");
 	return 0;
 }
